@@ -83,9 +83,11 @@ def predict(args, model, checkpoint, out_file):
             ship_list_dict.append({'ImageId': img_id,'EncodedPixels': np.nan})
         else:
             ship_rles = generate_preds(mask_outputs[i])
-            for ship_rle in ship_rles:
-                if len(ship_rle) > 0:
+            if ship_rles:
+                for ship_rle in ship_rles:
                     ship_list_dict.append({'ImageId': img_id,'EncodedPixels': ship_rle})
+            else:
+                ship_list_dict.append({'ImageId': img_id,'EncodedPixels': np.nan})
 
     pred_df = pd.DataFrame(ship_list_dict)
     pred_df.to_csv(args.sub_file, columns=['ImageId', 'EncodedPixels'], index=False)
