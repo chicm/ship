@@ -6,13 +6,13 @@ import torch
 import torch.utils.data as data
 from torchvision import datasets, models, transforms
 import settings
-from utils import ImgAug, from_pil, to_pil, get_train_val_meta
+from utils import ImgAug, from_pil, to_pil, get_train_val_meta, get_test_meta
 import augmentation as aug
 
 import pdb
 
 class ImageDataset(data.Dataset):
-    def __init__(self, train_mode, meta, augment_with_target=None,
+    def __init__(self, train_mode, meta, img_dir, augment_with_target=None,
                 image_augment=None, image_transform=None, mask_transform=None):
         self.augment_with_target = augment_with_target
         self.image_augment = image_augment
@@ -21,12 +21,14 @@ class ImageDataset(data.Dataset):
 
         self.train_mode = train_mode
         self.meta = meta
+        self.img_dir = img_dir
     
         self.img_ids = meta['ImageId'].values
-        self.ship = meta['ship'].values
+        if train_mode:
+            self.ship = meta['ship'].values
 
     def __getitem__(self, index):
-        img = self.load_image(os.path.join(settings.TRAIN_IMG_DIR, self.img_ids[index]))
+        img = self.load_image(os.path.join(self.img_dir, self.img_ids[index]))
 
         if self.train_mode:
             mask_fn = os.path.join(settings.TRAIN_MASK_DIR, self.img_ids[index])
@@ -121,14 +123,14 @@ mask_transforms = transforms.Compose(
         ]
     )
 
-def get_tta_transforms(index, pad_mode):
+def get_tta_transforms(index):
     tta_transforms = {
         0: [],
         1: [transforms.RandomHorizontalFlip(p=2.)],
         2: [transforms.RandomVerticalFlip(p=2.)],
         3: [transforms.RandomHorizontalFlip(p=2.), transforms.RandomVerticalFlip(p=2.)]
     }
-    return transforms.Compose([transforms.Resize((settings.H, settings.W)), *(tta_transforms[index]), *img_transforms])
+    return transforms.Compose([*tta_transforms[index], *img_transforms.transforms])
 
 def read_masks(mask_img_ids, mask_dir):
     masks = []
@@ -152,7 +154,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
         val_meta = val_meta.iloc[:10]
     print(train_meta.shape, val_meta.shape)
 
-    train_set = ImageDataset(True, train_meta,
+    train_set = ImageDataset(True, train_meta, img_dir=settings.TRAIN_IMG_DIR,
                             augment_with_target=img_mask_aug_train,
                             image_augment=ImgAug(aug.brightness_seq),
                             image_transform=img_transforms,
@@ -163,7 +165,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
     if dev_mode:
         train_loader.y_true = read_masks(train_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
 
-    val_set = ImageDataset(True, val_meta,
+    val_set = ImageDataset(True, val_meta, img_dir=settings.TRAIN_IMG_DIR,
                             augment_with_target=img_mask_aug_val,
                             image_augment=None, #ImgAug(aug.pad_to_fit_net(64, 'reflect')),
                             image_transform=img_transforms,
@@ -174,13 +176,13 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
 
     return train_loader, val_loader
 
-def get_test_loader(batch_size=16, index=0, dev_mode=False, pad_mode='edge'):
+def get_test_loader(batch_size=16, index=0, dev_mode=False):
     test_meta = get_test_meta()
     if dev_mode:
         test_meta = test_meta.iloc[:10]
-    test_set = ImageDataset(False, test_meta,
-                            image_augment=None if pad_mode == 'resize' else ImgAug(aug.pad_to_fit_net(64, pad_mode)),
-                            image_transform=get_tta_transforms(index, pad_mode))
+    test_set = ImageDataset(False, test_meta, img_dir=settings.TEST_IMG_DIR,
+                            image_augment=None,
+                            image_transform=get_tta_transforms(index))
     test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=test_set.collate_fn, drop_last=False)
     test_loader.num = len(test_set)
     test_loader.meta = test_set.meta
@@ -201,7 +203,7 @@ def test_train_loader():
         #print(masks)
 
 def test_test_loader():
-    test_loader = get_test_loader(4, pad_mode='resize')
+    test_loader = get_test_loader()
     print(test_loader.num)
     for i, data in enumerate(test_loader):
         print(data.size())
@@ -209,8 +211,8 @@ def test_test_loader():
             break
 
 if __name__ == '__main__':
-    #test_test_loader()
-    test_train_loader()
+    test_test_loader()
+    #test_train_loader()
     #small_dict, img_ids = load_small_train_ids()
     #print(img_ids[:10])
     #print(get_tta_transforms(3, 'edge'))

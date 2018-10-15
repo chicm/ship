@@ -239,7 +239,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=200, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=20, type=int, help='lr scheduler patience')
+    parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--exp_name', default=None, type=str, help='exp name')
