@@ -11,7 +11,7 @@ def create_train_meta():
     df_train_seg = pd.read_csv(settings.TRAIN_SHIP_SEGMENTATION, na_filter=False)
     df_train_seg = df_train_seg.groupby('ImageId')['EncodedPixels'].apply(' '.join).reset_index()
     df_train_seg['ship'] = df_train_seg.EncodedPixels.map(lambda x: 0 if len(x) == 0 else 1)
-    df_train_seg = shuffle(df_train_seg)
+    df_train_seg = shuffle(df_train_seg, random_state=1234)
     df_train_seg.to_csv(settings.TRAIN_META, index=False, columns=['ImageId', 'ship'])
 
 def create_train_mask_imgs():
