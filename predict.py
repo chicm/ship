@@ -36,14 +36,14 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
                 output, cls_output = model(img)
                 output, cls_output = torch.sigmoid(output), torch.sigmoid(cls_output)
                 if outputs is None:
-                    outputs = output.squeeze()
+                    outputs = output.squeeze().cpu()
                 else:
-                    outputs = torch.cat([outputs, output.squeeze()], 0)
+                    outputs = torch.cat([outputs, output.squeeze().cpu()], 0)
                 
                 cls_preds.extend(cls_output.squeeze().cpu().tolist())
 
                 print('{} / {}'.format(args.batch_size*(i+1), test_loader.num), end='\r')
-        outputs = outputs.cpu().numpy()
+        outputs = outputs.numpy()
         # flip back masks
         if flip_index == 1:
             outputs = np.flip(outputs, 2)
