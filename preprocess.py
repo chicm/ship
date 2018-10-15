@@ -29,4 +29,4 @@ def create_train_mask_imgs():
 
 if __name__ == '__main__':
     create_train_meta()
-    create_train_mask_imgs()
+    #create_train_mask_imgs()

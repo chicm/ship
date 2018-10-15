@@ -6,6 +6,7 @@ import imgaug as ia
 from imgaug import augmenters as iaa
 from PIL import Image
 from pycocotools import mask as cocomask
+from sklearn.utils import shuffle
 import settings
 
 
@@ -71,9 +72,18 @@ def get_train_val_meta(drop_empty=False):
     df_train = df.iloc[:split_index]
     df_val = df.iloc[split_index:]
 
+    df_train_ship = df_train[df_train['ship'] == 1]
+    df_train_no_ship = df_train[df_train['ship'] == 0].iloc[:40000]
+    
+    df_val_ship = df_val[df_val['ship'] == 1]
+    df_val_no_ship = df_val[df_val['ship'] == 0].iloc[:2000]
+
     if drop_empty:
-        df_train = df_train[df_train['ship'] == 1]
-        df_val = df_val[df_val['ship'] == 1]
+        df_train = df_train_ship
+        df_val = df_val_ship
+    else:
+        df_train = shuffle(df_train_ship.append(df_train_no_ship), random_state=1234)
+        df_val = shuffle(df_val_ship.append(df_val_no_ship), random_state=1234)
 
     print(df_train.shape, df_val.shape)
 

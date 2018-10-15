@@ -30,17 +30,18 @@ def criterion(args, output, target, epoch=0):
     focal_loss = focal_loss2d(mask_output, mask_target)
     lovasz_loss = lovasz_hinge(mask_output, mask_target)
     bce_loss = F.binary_cross_entropy_with_logits(mask_output, mask_target)
+    cls_loss = F.binary_cross_entropy_with_logits(ship_output, ship_target)
 
-    if ship_output is not None and args.train_cls:
-        salt_loss = F.binary_cross_entropy_with_logits(ship_output, ship_target)
-        return salt_loss, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), salt_loss.item()
+    if args.train_cls:
+        #cls_loss = F.binary_cross_entropy_with_logits(ship_output, ship_target)
+        return lovasz_loss + bce_loss + cls_loss, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), cls_loss.item()
 
     # four losses for: 1. grad, 2, display, 3, display 4, measurement
     #if epoch < 10:
     #    return bce_loss, focal_loss.item(), lovasz_loss.item(), 0., lovasz_loss.item() + focal_loss.item()*focal_weight
     #else:
         #return lovasz_loss+focal_loss*focal_weight, focal_loss.item(), lovasz_loss.item(), 0., lovasz_loss.item() + focal_loss.item()*focal_weight
-    return lovasz_loss + bce_loss, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), 0
+    return lovasz_loss + bce_loss, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), cls_loss.item()
 
 
 def train(args):
@@ -71,7 +72,7 @@ def train(args):
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
 
-    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, dev_mode=False, drop_empty=True) #not args.train_cls)
+    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, dev_mode=args.dev_mode, drop_empty=not args.train_cls)
 
     if args.lrs == 'plateau':
         lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=args.factor, patience=args.patience, min_lr=args.min_lr)
@@ -79,18 +80,18 @@ def train(args):
         lr_scheduler = CosineAnnealingLR(optimizer, args.t_max, eta_min=args.min_lr)
     #ExponentialLR(optimizer, 0.9, last_epoch=-1) #CosineAnnealingLR(optimizer, 15, 1e-7) 
 
-    print('epoch |   lr    |   %       |  loss  |  avg   | f loss | lovaz  |  bce   |  iou   | iout   |  best  | time | save |  ship  |')
+    print('epoch |   lr    |   %        |  loss  |  avg   | f loss | lovaz  |  bce   |  cls   |  iou   | iout   |  best  | time | save |  ship  |')
 
-    best_metrics, best_iout, _iou, _f, _l, _b, _ship = validate(args, model, val_loader, args.start_epoch)
-    print('val   |         |           |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |      |      | {:.4f} |'.format(
-        _f, _l, _b, _iou, best_iout, best_iout, _ship))
+    best_iout, _iou, _f, _l, _b, _ship, cls_acc = validate(args, model, val_loader, args.start_epoch)
+    print('val   |         |            |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |      |      | {:.4f} |'.format(
+        _f, _l, _b, _ship, _iou, best_iout, best_iout, cls_acc))
     if args.val:
         return
 
     model.train()
 
     if args.lrs == 'plateau':
-        lr_scheduler.step(best_metrics)
+        lr_scheduler.step(best_iout)
     else:
         lr_scheduler.step()
     train_iter = 0
@@ -117,16 +118,16 @@ def train(args):
                 epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1)), end='')
 
             if train_iter > 0 and train_iter % args.iter_val == 0:
-                metrics, iout, iou, focal_loss, lovaz_loss, bce_loss, ship_acc = validate(args, model, val_loader, epoch=epoch)
+                iout, iou, focal_loss, lovaz_loss, bce_loss, ship_loss, ship_acc = validate(args, model, val_loader, epoch=epoch)
                 
                 _save_ckp = ''
-                if metrics > best_metrics:
-                    best_metrics = metrics
+                if iout > best_iout:
+                    best_iout = iout
                     torch.save(model.state_dict(), model_file)
                     _save_ckp = '*'
-                # print('epoch |   %       |  loss  |  avg   | f loss | lovaz  |  iou   | iout   |  best  |   lr    | time | save |')
-                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} | {:4s} | {:.4f} |'.format(
-                    focal_loss, lovaz_loss, bce_loss, iou, iout, best_iout, (time.time() - bg) / 60, _save_ckp, ship_acc))
+                # print('epoch |   lr    |   %       |  loss  |  avg   | f loss | lovaz  |  bce   |  cls   |  iou   | iout   |  best  | time | save |  ship  |')
+                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} | {:4s} | {:.4f} |'.format(
+                    focal_loss, lovaz_loss, bce_loss, ship_loss, iou, iout, best_iout, (time.time() - bg) / 60, _save_ckp, ship_acc))
 
                 #log.info('epoch {}: train loss: {:.4f} focal loss: {:.4f} lovaz loss: {:.4f} iout: {:.4f} best iout: {:.4f} iou: {:.4f} lr: {} {}'
                 #    .format(epoch, train_loss, focal_loss, lovaz_loss, iout, best_iout, iou, current_lr, _save_ckp))
@@ -134,7 +135,7 @@ def train(args):
                 model.train()
                 
                 if args.lrs == 'plateau':
-                    lr_scheduler.step(metrics)
+                    lr_scheduler.step(iout)
                 else:
                     lr_scheduler.step()
                 current_lr = get_lrs(optimizer)
@@ -180,7 +181,7 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     y_pred = generate_preds(args, outputs, (settings.ORIG_H, settings.ORIG_W), threshold)
 
     #draw
-    if False:
+    if args.dev_mode:
         for p, y in zip(y_pred, val_loader.y_true):
             print(p.shape, y.shape)
             cv2.imshow('image', np.hstack([p,y])*255)
@@ -191,12 +192,10 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     iout_score = intersection_over_union_thresholds(val_loader.y_true, y_pred)
     #print('IOU score on validation is {:.4f}'.format(iou_score))
     #print('IOUT score on validation is {:.4f}'.format(iout_score))
-    if args.train_cls:
-        metrics = cls_corrects / total_num
-    else:
-        metrics = iout_score
 
-    return metrics, iout_score, iou_score, focal_loss / n_batches, lovaz_loss / n_batches, bce_loss / n_batches, cls_corrects / total_num 
+    cls_acc = cls_corrects / total_num
+
+    return iout_score, iou_score, focal_loss / n_batches, lovaz_loss / n_batches, bce_loss / n_batches, ship_loss / n_batches, cls_acc
 
 def find_threshold(args):
     #ckp = r'G:\salt\models\152\ensemble_822\best_3.pth'
@@ -247,9 +246,11 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', default='UNetShipV1', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
+    parser.add_argument('--dev_mode', action='store_true')
     parser.add_argument('--train_cls', action='store_true')
     
     args = parser.parse_args()
+    print(args)
 
     #log.basicConfig(
     #    filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
