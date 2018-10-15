@@ -107,7 +107,7 @@ def to_tensor(x):
 
 img_transforms = transforms.Compose(
         [
-            transforms.Resize((256, 256)),
+            transforms.Resize((settings.H, settings.W)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
@@ -115,7 +115,7 @@ img_transforms = transforms.Compose(
 
 mask_transforms = transforms.Compose(
         [
-            transforms.Resize((256, 256)),
+            transforms.Resize((settings.H, settings.W)),
             transforms.Lambda(to_array),
             transforms.Lambda(to_tensor),
         ]
@@ -128,7 +128,7 @@ def get_tta_transforms(index, pad_mode):
         2: [transforms.RandomVerticalFlip(p=2.)],
         3: [transforms.RandomHorizontalFlip(p=2.), transforms.RandomVerticalFlip(p=2.)]
     }
-    return transforms.Compose([transforms.Resize((256, 256)), *(tta_transforms[index]), *img_transforms])
+    return transforms.Compose([transforms.Resize((settings.H, settings.W)), *(tta_transforms[index]), *img_transforms])
 
 def read_masks(mask_img_ids, mask_dir):
     masks = []
@@ -138,18 +138,19 @@ def read_masks(mask_img_ids, mask_dir):
         masks.append(mask)
     return masks
 
-def get_train_val_loaders(batch_size=8, dev_mode=False):
+def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
     train_shuffle = True
-    train_meta, val_meta = get_train_val_meta()
-
-    if dev_mode:
-        train_shuffle = False
-        train_meta = train_meta.iloc[:10]
-        val_meta = val_meta.iloc[:10]
-    print(train_meta.shape, val_meta.shape)
+    train_meta, val_meta = get_train_val_meta(drop_empty=drop_empty)
 
     img_mask_aug_train = ImgAug(aug.get_affine_seq('edge'))
     img_mask_aug_val = None
+
+    if dev_mode:
+        train_shuffle = False
+        img_mask_aug_train = None
+        train_meta = train_meta.iloc[:10]
+        val_meta = val_meta.iloc[:10]
+    print(train_meta.shape, val_meta.shape)
 
     train_set = ImageDataset(True, train_meta,
                             augment_with_target=img_mask_aug_train,
@@ -159,6 +160,8 @@ def get_train_val_loaders(batch_size=8, dev_mode=False):
 
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=train_shuffle, num_workers=4, collate_fn=train_set.collate_fn, drop_last=True)
     train_loader.num = len(train_set)
+    if dev_mode:
+        train_loader.y_true = read_masks(train_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
 
     val_set = ImageDataset(True, val_meta,
                             augment_with_target=img_mask_aug_val,

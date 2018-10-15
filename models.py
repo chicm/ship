@@ -84,19 +84,21 @@ class SpatialAttentionGate(nn.Module):
         return x
 
 class DecoderBlock(nn.Module):
-    def __init__(self, in_channels, middle_channels, out_channels):
+    def __init__(self, in_channels_x, in_channels_e, middle_channels, out_channels):
         super(DecoderBlock, self).__init__()
-        self.conv1 = ConvBn2d(in_channels, middle_channels)
+        self.in_channels = in_channels_x + in_channels_e
+        self.conv1 = ConvBn2d(self.in_channels, middle_channels)
         self.conv2 = ConvBn2d(middle_channels, out_channels)
-        #self.deconv = nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1)
-        #self.bn = nn.BatchNorm2d(out_channels)
+        self.deconv = nn.ConvTranspose2d(in_channels_x, in_channels_x, kernel_size=4, stride=2, padding=1)
+        self.bn = nn.BatchNorm2d(self.in_channels)
         self.spatial_gate = SpatialAttentionGate(out_channels)
         self.channel_gate = ChannelAttentionGate(out_channels)
 
     def forward(self, x, e=None):
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
+        x = self.deconv(x)
         if e is not None:
             x = torch.cat([x,e], 1)
+        x = self.bn(x)
 
         x = F.relu(self.conv1(x), inplace=True)
         x = F.relu(self.conv2(x), inplace=True)
@@ -106,7 +108,6 @@ class DecoderBlock(nn.Module):
         x = x*g1 + x*g2
 
         return x
-
 class EncoderBlock(nn.Module):
     def __init__(self, block, out_channels):
         super(EncoderBlock, self).__init__()
@@ -135,44 +136,50 @@ def create_resnet(layers):
     else:
         raise NotImplementedError('only 34, 50, 101, 152 version of Resnet are implemented')
 
-class UNetResNetV4(nn.Module):
+class UNetShipV1(nn.Module):
     def __init__(self, encoder_depth, num_classes=1, num_filters=32, dropout_2d=0.4,
                  pretrained=True, is_deconv=True):
-        super(UNetResNetV4, self).__init__()
-        self.name = 'UNetResNetV4_'+str(encoder_depth)
+        super(UNetShipV1, self).__init__()
+        self.name = 'UNetShipV1_'+str(encoder_depth)
         self.num_classes = num_classes
         self.dropout_2d = dropout_2d
 
-        self.resnet, bottom_channel_nr = create_resnet(encoder_depth)
+        self.resnet, nbtm = create_resnet(encoder_depth)
 
         self.encoder1 = EncoderBlock(
             nn.Sequential(self.resnet.conv1, self.resnet.bn1, self.resnet.relu),
             num_filters*2
         )
-        self.encoder2 = EncoderBlock(self.resnet.layer1, bottom_channel_nr//8)
-        self.encoder3 = EncoderBlock(self.resnet.layer2, bottom_channel_nr//4)
-        self.encoder4 = EncoderBlock(self.resnet.layer3, bottom_channel_nr//2)
-        self.encoder5 = EncoderBlock(self.resnet.layer4, bottom_channel_nr)
+        self.encoder2 = EncoderBlock(self.resnet.layer1, nbtm//8)
+        self.encoder3 = EncoderBlock(self.resnet.layer2, nbtm//4)
+        self.encoder4 = EncoderBlock(self.resnet.layer3, nbtm//2)
+        self.encoder5 = EncoderBlock(self.resnet.layer4, nbtm)
 
         center_block = nn.Sequential(
-            ConvBn2d(bottom_channel_nr, bottom_channel_nr, kernel_size=3, padding=1),
+            ConvBn2d(nbtm, nbtm, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            ConvBn2d(bottom_channel_nr, bottom_channel_nr//2, kernel_size=3, padding=1),
+            ConvBn2d(nbtm, nbtm//2, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.center = EncoderBlock(center_block, bottom_channel_nr//2)
+        self.center = EncoderBlock(center_block, nbtm//2)
 
-        self.decoder5 = DecoderBlock(bottom_channel_nr + bottom_channel_nr // 2,  num_filters * 16, 64)
-        self.decoder4 = DecoderBlock(64 + bottom_channel_nr // 2,  num_filters * 8,  64)
-        self.decoder3 = DecoderBlock(64 + bottom_channel_nr // 4,  num_filters * 4,  64)
-        self.decoder2 = DecoderBlock(64 + bottom_channel_nr // 8, num_filters * 2,  64)
-        self.decoder1 = DecoderBlock(64, num_filters, 64)
+        self.decoder5 = DecoderBlock(nbtm // 2, nbtm, num_filters * 16, 64)
+        self.decoder4 = DecoderBlock(64, nbtm // 2,  num_filters * 8,  64)
+        self.decoder3 = DecoderBlock(64, nbtm // 4,  num_filters * 4,  64)
+        self.decoder2 = DecoderBlock(64, nbtm // 8, num_filters * 2,  64)
+        self.decoder1 = DecoderBlock(64, 0, num_filters, 64)
 
         self.logit = nn.Sequential(
-            nn.Conv2d(320, 64, kernel_size=3, padding=1),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 1, kernel_size=1, padding=0)
+        )
+
+        self.logit_image = nn.Sequential(
+            nn.Linear(nbtm, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 1),
         )
 
     def forward(self, x):
@@ -190,17 +197,25 @@ class UNetResNetV4(nn.Module):
         d2 = self.decoder2(d3, e2) #; print('d2:', d2.size())
         d1 = self.decoder1(d2) #; print('d1:', d1.size())
 
-        f = torch.cat([
-            d1,
-            F.interpolate(d2, scale_factor=2, mode='bilinear', align_corners=False),
-            F.interpolate(d3, scale_factor=4, mode='bilinear', align_corners=False),
-            F.interpolate(d4, scale_factor=8, mode='bilinear', align_corners=False),
-            F.interpolate(d5, scale_factor=16, mode='bilinear', align_corners=False),
-        ], 1) 
+        # hyper column, to be enabled later
+        #f = torch.cat([
+        #    d1,
+        #    F.interpolate(d2, scale_factor=2, mode='bilinear', align_corners=False),
+        #    F.interpolate(d3, scale_factor=4, mode='bilinear', align_corners=False),
+        #    F.interpolate(d4, scale_factor=8, mode='bilinear', align_corners=False),
+        #    F.interpolate(d5, scale_factor=16, mode='bilinear', align_corners=False),
+        #], 1) 
 
-        f = F.dropout2d(f, p=self.dropout_2d)
+        #f = F.dropout2d(f, p=self.dropout_2d)
 
-        return self.logit(f), None
+        # ship / no ship classifier
+        img_f = F.adaptive_avg_pool2d(e5, 1).view(x.size(0), -1)
+        img_f = F.dropout(img_f, p=0.5, training=self.training)
+        img_logit = self.logit_image(img_f).view(-1)
+
+        out =  F.dropout2d(d1, p=self.dropout_2d)
+
+        return self.logit(out), img_logit
     
     def freeze_bn(self):
         '''Freeze BatchNorm layers.'''
@@ -210,7 +225,7 @@ class UNetResNetV4(nn.Module):
 
     def get_params(self, base_lr):
         group1 = [self.encoder1, self.encoder2, self.encoder3, self.encoder4, self.encoder5]
-        group2 = [self.decoder1, self.decoder2, self.decoder3, self.decoder4, self.decoder5, self.center, self.logit]
+        group2 = [self.decoder1, self.decoder2, self.decoder3, self.decoder4, self.decoder5, self.center, self.logit, self.logit_image]
 
         params1 = []
         for x in group1:
@@ -324,8 +339,8 @@ class UNetResNetV5(nn.Module):
 
 
 def test():
-    model = UNet8(50, num_filters=32).cuda()
-    inputs = torch.randn(2,3,128,128).cuda()
+    model = UNetShipV1(34, num_filters=32).cuda()
+    inputs = torch.randn(2,3,256,256).cuda()
     out, _ = model(inputs)
     #print(model)
     print(out.size(), _.size()) #, cls_taret.size())

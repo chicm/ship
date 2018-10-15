@@ -1,2 +1,2 @@
 
-DATA_DIR = r'G:\ship'
+DATA_DIR = r'D:\data\ship'

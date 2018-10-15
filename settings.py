@@ -1,6 +1,9 @@
 import os
 import local_settings
 
+H, W = 256, 256
+ORIG_H, ORIG_W = 768, 768
+
 DATA_DIR = local_settings.DATA_DIR
 TRAIN_IMG_DIR = os.path.join(DATA_DIR, 'train_v2')
 TEST_IMG_DIR = os.path.join(DATA_DIR, 'test_v2')

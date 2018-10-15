@@ -5,6 +5,7 @@ import pandas as pd
 import imgaug as ia
 from imgaug import augmenters as iaa
 from PIL import Image
+from pycocotools import mask as cocomask
 import settings
 
 
@@ -43,17 +44,40 @@ def run_length_decoding(mask_rle, shape):
         img[lo:hi] = 255
     return img.reshape((shape[1], shape[0])).T
 
-def get_train_val_meta():
+
+def rle_from_binary(prediction):
+    prediction = np.asfortranarray(prediction)
+    return cocomask.encode(prediction)
+
+
+def binary_from_rle(rle):
+    return cocomask.decode(rle)
+
+def get_segmentations(labeled):
+    nr_true = labeled.max()
+    segmentations = []
+    for i in range(1, nr_true + 1):
+        msk = labeled == i
+        segmentation = rle_from_binary(msk.astype('uint8'))
+        segmentation['counts'] = segmentation['counts'].decode("UTF-8")
+        segmentations.append(segmentation)
+    return segmentations
+
+def get_train_val_meta(drop_empty=False):
     df = pd.read_csv(settings.TRAIN_META, na_filter=False)
 
     split_index = df.shape[0] - 10000
 
     df_train = df.iloc[:split_index]
-
     df_val = df.iloc[split_index:]
+
+    if drop_empty:
+        df_train = df_train[df_train['ship'] == 1]
+        df_val = df_val[df_val['ship'] == 1]
+
     print(df_train.shape, df_val.shape)
 
-    return df_train, df_val
+    return df_train, df_val[:800]
 
 def from_pil(*images):
     images = [np.array(image) for image in images]
