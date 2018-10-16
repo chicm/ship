@@ -187,7 +187,7 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
             print(p.shape, y.shape)
             objs = split_mask(p, threshold_obj=30, threshold=None)
             if objs:
-                if True:
+                if False:
                     objs = map(lambda x: mask_to_bbox(x), objs)
                 cv2.imshow('image', np.hstack([*objs, y])*255)
             else:

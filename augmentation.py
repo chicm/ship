@@ -31,31 +31,15 @@ def _perspective_transform_augment_images(self, images, random_state, parents, h
 
 iaa.PerspectiveTransform._augment_images = _perspective_transform_augment_images
 
-def get_affine_seq_depths(pad_mode='edge'):
-    affine_seq = iaa.Sequential([
-        # General
-        iaa.Fliplr(0.5),
-        #iaa.Flipud(0.5), 
-        iaa.Affine(
-            #scale={"x": (0.9, 1.1), "y": (0.9, 1.1)},
-            rotate=(-10, 10),
-            translate_percent={"x": (-0.1, 0.1)}, #"y": (-0.15, 0.15)}, 
-            mode='edge' #symmetric reflect
-        ),
-        # Deformations
-        #iaa.Sometimes(0.3, iaa.PiecewiseAffine(scale=(0.04, 0.08))),
-        #iaa.Sometimes(0.3, iaa.PerspectiveTransform(scale=(0.05, 0.1))),
-    ], random_order=True)
-    return affine_seq
 
 def get_affine_seq(pad_mode='reflect'):
     affine_seq = iaa.Sequential([
         # General
-        iaa.Fliplr(0.3),
-        iaa.Flipud(0.3), 
+        iaa.Fliplr(0.5),
+        iaa.Flipud(0.5), 
         iaa.Affine(
-            scale={"x": (0.9, 1.1), "y": (0.9, 1.1)},
-            rotate=(-10, 10),
+            scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+            rotate=(-20, 20),
             translate_percent={"x": (-0.15, 0.15), "y": (-0.15, 0.15)}, mode=pad_mode #'reflect' #symmetric
         ),
         # Deformations
@@ -86,30 +70,17 @@ intensity_seq = iaa.Sequential([
 ], random_order=False)
 
 brightness_seq =  iaa.Sequential([
-    iaa.Multiply((0.9, 1.1)),
+    iaa.Multiply((0.8, 1.2)),
     iaa.Sometimes(0.3,
         iaa.GaussianBlur(sigma=(0, 0.5))
     )
 ], random_order=False)
-
-def crop_seq(crop_size, pad_size, pad_method):
-    seq = iaa.Sequential([
-            PadFixed(pad=pad_size, pad_method=pad_method),
-            get_affine_seq_depths(pad_method), 
-            RandomCropFixedSize(px=crop_size)
-        ], 
-        random_order=False)
-    return seq
 
 
 def padding_seq(pad_size, pad_method):
     seq = iaa.Sequential([PadFixed(pad=pad_size, pad_method=pad_method),
                           ]).to_deterministic()
     return seq
-
-
-def pad_to_fit_net(divisor, pad_mode, rest_of_augs=iaa.Noop()):
-    return iaa.Sequential(InferencePad(divisor, pad_mode), rest_of_augs)
 
 
 class PadFixed(iaa.Augmenter):

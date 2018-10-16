@@ -29,6 +29,7 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
         test_loader = get_test_loader(args.batch_size, index=flip_index, dev_mode=args.dev_mode)
         meta = test_loader.meta
         outputs = None
+        cls_outputs = None
         with torch.no_grad():
             for i, img in enumerate(test_loader):
                 img = img.cuda()
@@ -36,13 +37,16 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
                 output, cls_output = torch.sigmoid(output), torch.sigmoid(cls_output)
                 if outputs is None:
                     outputs = output.squeeze().cpu()
+                    cls_outputs = cls_output.squeeze().cpu()
                 else:
                     outputs = torch.cat([outputs, output.squeeze().cpu()], 0)
+                    cls_outputs = torch.cat([cls_outputs, cls_output.squeeze().cpu()])
                 
-                cls_preds.extend(cls_output.squeeze().cpu().tolist())
+                #cls_preds.extend(cls_output.squeeze().cpu().tolist())
 
                 print('{} / {}'.format(args.batch_size*(i+1), test_loader.num), end='\r')
         outputs = outputs.numpy()
+        cls_outputs = cls_outputs.numpy()
         # flip back masks
         if flip_index == 1:
             outputs = np.flip(outputs, 2)
@@ -53,24 +57,29 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
             outputs = np.flip(outputs, 1)
         #print(outputs.shape)
         preds.append(outputs)
+        cls_preds.append(cls_outputs)
     
     parent_dir = ckp_path+'_out'
     if not os.path.exists(parent_dir):
         os.makedirs(parent_dir)
     np_file = os.path.join(parent_dir, 'pred.npy')
+    np_file_cls = os.path.join(parent_dir, 'pred_cls.npy')
 
     model_pred_result = np.mean(preds, 0)
-    np.save(np_file, model_pred_result)
+    model_cls_pred_result = np.mean(cls_preds, 0)
 
-    return model_pred_result, cls_preds, meta
+    np.save(np_file, model_pred_result)
+    np.save(np_file_cls, model_cls_pred_result)
+
+    return model_pred_result, model_cls_pred_result, meta
 
 
 def predict(args, model, checkpoint, out_file):
     print('predicting {}...'.format(checkpoint))
-    mask_outputs, cls_preds, meta = do_tta_predict(args, model, checkpoint, tta_num=1)
+    mask_outputs, cls_preds, meta = do_tta_predict(args, model, checkpoint, tta_num=4)
     print(mask_outputs.shape)
     #print(len(cls_preds))
-    #print(cls_preds)
+    print(cls_preds)
     #print(meta.head(10))
     #y_pred_test = generate_preds(pred)
     print(meta.shape)
@@ -106,12 +115,13 @@ def generate_preds(args, output, target_size=(settings.ORIG_H, settings.ORIG_W),
         for obj in mask_objects:
             #print('detected obj:',obj.shape)
             #print(obj.max())
-            if args.bbox:
-                obj = mask_to_bbox(obj)
+            #if args.bbox:
+            #    obj = mask_to_bbox(obj)
 
             pred_rles.append(run_length_encoding(obj))
-            #cv2.imshow('mask', obj*255)
-            #cv2.waitKey(0)
+            if args.dev_mode:
+                cv2.imshow('mask', obj*255)
+                cv2.waitKey(0)
         #pred = binarize(cropped, threshold)
         #preds.append(pred)
 
@@ -140,9 +150,9 @@ if __name__ == '__main__':
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--batch_size', default=32, type=int, help='batch_size')
     parser.add_argument('--exp_name', default=None, type=str, help='exp name')
-    parser.add_argument('--sub_file', default='sub_1.csv', type=str, help='submission file')
+    parser.add_argument('--sub_file', default='sub_2.csv', type=str, help='submission file')
     parser.add_argument('--dev_mode', action='store_true')
-    parser.add_argument('--bbox', action='store_true')
+    #parser.add_argument('--bbox', action='store_true')
 
 
     args = parser.parse_args()
