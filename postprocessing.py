@@ -4,6 +4,7 @@ import pandas as pd
 from scipy import ndimage as ndi
 from skimage.transform import resize
 import cv2
+from scipy import ndimage
 
 from utils import run_length_decoding
 import pdb
@@ -30,22 +31,48 @@ def binarize(image, threshold):
     image_binarized = (image > threshold).astype(np.uint8)
     return image_binarized
 
-def save_pseudo_label_masks(submission_file):
-    df = pd.read_csv(submission_file, na_filter=False)
-    print(df.head())
+def split_mask(mask, threshold_obj=30, threshold=0.5): 
+    #ignor predictions composed of "threshold_obj" pixels or less
+    if threshold is not None:
+        mask = mask > threshold
+    #threshold = 0.5 
+    labled, n_objs = ndimage.label(mask)
+    result = []
+    for i in range(n_objs):
+        obj = (labled == i + 1).astype(np.uint8)
+        if(obj.sum() > threshold_obj): result.append(obj)
+    return result
 
-    img_dir = os.path.join(settings.TEST_DIR, 'masks')
+def mask_to_bbox(mask):
+    #label = np.where(labeled_mask == label_id, 1, 0).astype(np.uint8)
+    img_box = np.zeros_like(mask)
+    mask = (mask > 0).astype(np.uint8)
+    _, cnt, _ = cv2.findContours(mask, 1, 2)
+    rect = cv2.minAreaRect(cnt[0])
+    box = cv2.boxPoints(rect)
+    box = np.int0(box)
+    cv2.drawContours(img_box, [box], 0, 1, -1)
+    
+    return img_box
 
-    for i, row in enumerate(df.values):
-        decoded_mask = run_length_decoding(row[1], (101,101))
-        filename = os.path.join(img_dir, '{}.png'.format(row[0]))
-        rgb_mask = cv2.cvtColor(decoded_mask,cv2.COLOR_GRAY2RGB)
-        print(filename)
-        cv2.imwrite(filename, decoded_mask)
-        if i % 100 == 0:
-            print(i)
+def masks_to_bounding_boxes(mask):
+    labeled_mask, n_objs = ndimage.label(mask)
+
+    if labeled_mask.max() == 0:
+        return labeled_mask
+    else:
+        img_box = np.zeros_like(labeled_mask)
+        for label_id in range(1, labeled_mask.max() + 1, 1):
+            label = np.where(labeled_mask == label_id, 1, 0).astype(np.uint8)
+            _, cnt, _ = cv2.findContours(label, 1, 2)
+            rect = cv2.minAreaRect(cnt[0])
+            box = cv2.boxPoints(rect)
+            box = np.int0(box)
+            cv2.drawContours(img_box, [box], 0, label_id, -1)
+        return img_box
 
 
 
 if __name__ == '__main__':
-    save_pseudo_label_masks('V456_ensemble_1011.csv')
+    pass
+    #save_pseudo_label_masks('V456_ensemble_1011.csv')

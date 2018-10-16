@@ -151,7 +151,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
         train_shuffle = False
         img_mask_aug_train = None
         train_meta = train_meta.iloc[:10]
-        val_meta = val_meta.iloc[:10]
+        val_meta = val_meta.iloc[10:20]
     print(train_meta.shape, val_meta.shape)
 
     train_set = ImageDataset(True, train_meta, img_dir=settings.TRAIN_IMG_DIR,

@@ -6,13 +6,12 @@ import pandas as pd
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from scipy import ndimage
 import cv2
 
 import settings
 from loader import get_test_loader
 from models import UNetShipV1
-from postprocessing import binarize, resize_image
+from postprocessing import binarize, resize_image, split_mask, mask_to_bbox
 from utils import run_length_encoding
 
 def do_tta_predict(args, model, ckp_path, tta_num=1):
@@ -82,7 +81,7 @@ def predict(args, model, checkpoint, out_file):
         if cls_preds[i] < 0.5:
             ship_list_dict.append({'ImageId': img_id,'EncodedPixels': np.nan})
         else:
-            ship_rles = generate_preds(mask_outputs[i])
+            ship_rles = generate_preds(args, mask_outputs[i])
             if ship_rles:
                 for ship_rle in ship_rles:
                     ship_list_dict.append({'ImageId': img_id,'EncodedPixels': ship_rle})
@@ -95,18 +94,7 @@ def predict(args, model, checkpoint, out_file):
     #submission.to_csv(out_file, index=None, encoding='utf-8')
 
 
-def split_mask(mask):
-    threshold = 0.5
-    threshold_obj = 30 #ignor predictions composed of "threshold_obj" pixels or less
-    labled, n_objs = ndimage.label(mask > threshold)
-    result = []
-    for i in range(n_objs):
-        obj = (labled == i + 1).astype(np.uint8)
-        if(obj.sum() > threshold_obj): result.append(obj)
-    return result
-
-
-def generate_preds(output, target_size=(settings.ORIG_H, settings.ORIG_W), threshold=0.5):
+def generate_preds(args, output, target_size=(settings.ORIG_H, settings.ORIG_W), threshold=0.5):
     pred_rles = []
 
     #print(output.shape)
@@ -118,6 +106,9 @@ def generate_preds(output, target_size=(settings.ORIG_H, settings.ORIG_W), thres
         for obj in mask_objects:
             #print('detected obj:',obj.shape)
             #print(obj.max())
+            if args.bbox:
+                obj = mask_to_bbox(obj)
+
             pred_rles.append(run_length_encoding(obj))
             #cv2.imshow('mask', obj*255)
             #cv2.waitKey(0)
@@ -151,6 +142,8 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', default=None, type=str, help='exp name')
     parser.add_argument('--sub_file', default='sub_1.csv', type=str, help='submission file')
     parser.add_argument('--dev_mode', action='store_true')
+    parser.add_argument('--bbox', action='store_true')
+
 
     args = parser.parse_args()
     print(args)

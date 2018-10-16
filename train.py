@@ -17,6 +17,7 @@ from lovasz_losses import lovasz_hinge, lovasz_softmax
 from dice_losses import mixed_dice_bce_loss, FocalLoss2d
 from postprocessing import binarize, resize_image
 from metrics import intersection_over_union, intersection_over_union_thresholds
+from postprocessing import split_mask, mask_to_bbox
 from PIL import ImageDraw
 import cv2
 MODEL_DIR = settings.MODEL_DIR
@@ -184,7 +185,16 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     if args.dev_mode:
         for p, y in zip(y_pred, val_loader.y_true):
             print(p.shape, y.shape)
-            cv2.imshow('image', np.hstack([p,y])*255)
+            objs = split_mask(p, threshold_obj=30, threshold=None)
+            if objs:
+                if True:
+                    objs = map(lambda x: mask_to_bbox(x), objs)
+                cv2.imshow('image', np.hstack([*objs, y])*255)
+            else:
+            #bb_img = masks_to_bounding_boxes(p)
+            #bb_img = (bb_img > 0).astype(np.uint8)
+            #print(bb_img.max())
+                cv2.imshow('image', np.hstack([p, y])*255)
             cv2.waitKey(0)
 
 
@@ -196,24 +206,6 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     cls_acc = cls_corrects / total_num
 
     return iout_score, iou_score, focal_loss / n_batches, lovaz_loss / n_batches, bce_loss / n_batches, ship_loss / n_batches, cls_acc
-
-def find_threshold(args):
-    #ckp = r'G:\salt\models\152\ensemble_822\best_3.pth'
-    ckp = r'D:\data\salt\models\UNetResNetV4_34\best_0.pth'
-    model = UNetShipV1(34)
-    model.load_state_dict(torch.load(ckp))
-    model = model.cuda()
-    #criterion = lovasz_hinge
-    _, val_loader = get_train_val_loaders(batch_size=args.batch_size, dev_mode=False)
-
-    best, bestt = 0, 0.
-    for t in range(40, 55, 1):
-        print('threshold:', t/100.)
-        iout, *_= validate(args, model, val_loader, epoch=10, threshold=t/100.)
-        if iout > best:
-            best = iout
-            bestt = t/100.
-    print('best:', best, bestt)
 
 
 def generate_preds(args, outputs, target_size, threshold=0.5):
