@@ -15,7 +15,7 @@ from postprocessing import binarize, resize_image, split_mask, mask_to_bbox
 from utils import run_length_encoding
 from augmentation import tta_back_mask_np
 
-def do_tta_predict(args, model, ckp_path, tta_num=8):
+def do_tta_predict(args, model, ckp_path, tta_indices):
     '''
     return 18000x128x128 np array
     '''
@@ -25,7 +25,7 @@ def do_tta_predict(args, model, ckp_path, tta_num=8):
     meta = None
 
     # i is tta index, 0: no change, 1: horizon flip, 2: vertical flip, 3: do both
-    for flip_index in range(tta_num):
+    for flip_index in tta_indices:
         print('flip_index:', flip_index)
         test_loader = get_test_loader(args.batch_size, index=flip_index, dev_mode=args.dev_mode)
         meta = test_loader.meta
@@ -55,8 +55,8 @@ def do_tta_predict(args, model, ckp_path, tta_num=8):
     parent_dir = ckp_path+'_out'
     if not os.path.exists(parent_dir):
         os.makedirs(parent_dir)
-    np_file = os.path.join(parent_dir, 'pred.npy')
-    np_file_cls = os.path.join(parent_dir, 'pred_cls.npy')
+    np_file = os.path.join(parent_dir, 'pred_{}.npy'.format(''.join([str(x) for x in tta_indices])))
+    np_file_cls = os.path.join(parent_dir, 'pred_cls_{}.npy'.format(''.join([str(x) for x in tta_indices])))
 
     model_pred_result = np.mean(preds, 0)
     model_cls_pred_result = np.mean(cls_preds, 0)
@@ -69,7 +69,12 @@ def do_tta_predict(args, model, ckp_path, tta_num=8):
 
 def predict(args, model, checkpoint, out_file):
     print('predicting {}...'.format(checkpoint))
-    mask_outputs, cls_preds, meta = do_tta_predict(args, model, checkpoint, tta_num=8)
+    mask_outputs1, cls_preds1, meta = do_tta_predict(args, model, checkpoint, tta_indices=[0,1,2,3])
+    mask_outputs2, cls_preds2, meta = do_tta_predict(args, model, checkpoint, tta_indices=[4,5,6,7])
+
+    mask_outputs = np.mean([mask_outputs1, mask_outputs2], 0)
+    cls_preds = np.mean([cls_preds1, cls_preds2], 0)
+
     print(mask_outputs.shape)
     #print(len(cls_preds))
     print(cls_preds)
