@@ -124,13 +124,15 @@ mask_transforms = transforms.Compose(
     )
 
 def get_tta_transforms(index):
+    '''
     tta_transforms = {
         0: [],
         1: [transforms.RandomHorizontalFlip(p=2.)],
         2: [transforms.RandomVerticalFlip(p=2.)],
         3: [transforms.RandomHorizontalFlip(p=2.), transforms.RandomVerticalFlip(p=2.)]
     }
-    return transforms.Compose([*tta_transforms[index], *img_transforms.transforms])
+    '''
+    return transforms.Compose([aug.TTATransform(index), *img_transforms.transforms])
 
 def read_masks(mask_img_ids, mask_dir):
     masks = []
@@ -203,7 +205,7 @@ def test_train_loader():
         #print(masks)
 
 def test_test_loader():
-    test_loader = get_test_loader()
+    test_loader = get_test_loader(index=1)
     print(test_loader.num)
     for i, data in enumerate(test_loader):
         print(data.size())

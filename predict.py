@@ -13,8 +13,9 @@ from loader import get_test_loader
 from models import UNetShipV1
 from postprocessing import binarize, resize_image, split_mask, mask_to_bbox
 from utils import run_length_encoding
+from augmentation import tta_back_mask_np
 
-def do_tta_predict(args, model, ckp_path, tta_num=1):
+def do_tta_predict(args, model, ckp_path, tta_num=8):
     '''
     return 18000x128x128 np array
     '''
@@ -47,15 +48,7 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
                 print('{} / {}'.format(args.batch_size*(i+1), test_loader.num), end='\r')
         outputs = outputs.numpy()
         cls_outputs = cls_outputs.numpy()
-        # flip back masks
-        if flip_index == 1:
-            outputs = np.flip(outputs, 2)
-        elif flip_index == 2:
-            outputs = np.flip(outputs, 1)
-        elif flip_index == 3:
-            outputs = np.flip(outputs, 2)
-            outputs = np.flip(outputs, 1)
-        #print(outputs.shape)
+        outputs = tta_back_mask_np(outputs, flip_index)
         preds.append(outputs)
         cls_preds.append(cls_outputs)
     
@@ -76,7 +69,7 @@ def do_tta_predict(args, model, ckp_path, tta_num=1):
 
 def predict(args, model, checkpoint, out_file):
     print('predicting {}...'.format(checkpoint))
-    mask_outputs, cls_preds, meta = do_tta_predict(args, model, checkpoint, tta_num=4)
+    mask_outputs, cls_preds, meta = do_tta_predict(args, model, checkpoint, tta_num=8)
     print(mask_outputs.shape)
     #print(len(cls_preds))
     print(cls_preds)

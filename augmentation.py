@@ -77,56 +77,6 @@ brightness_seq =  iaa.Sequential([
 ], random_order=False)
 
 
-def padding_seq(pad_size, pad_method):
-    seq = iaa.Sequential([PadFixed(pad=pad_size, pad_method=pad_method),
-                          ]).to_deterministic()
-    return seq
-
-
-class PadFixed(iaa.Augmenter):
-    PAD_FUNCTION = {'reflect': cv2.BORDER_REFLECT_101,
-                    'edge': cv2.BORDER_REPLICATE,
-                    }
-
-    def __init__(self, pad=None, pad_method=None, name=None, deterministic=False, random_state=None):
-        super().__init__(name, deterministic, random_state)
-        self.pad = pad
-        self.pad_method = pad_method
-
-    def _augment_images(self, images, random_state, parents, hooks):
-        result = []
-        for i, image in enumerate(images):
-            image_pad = self._pad(image)
-            result.append(image_pad)
-        return result
-
-    def _augment_keypoints(self, keypoints_on_images, random_state, parents, hooks):
-        result = []
-        return result
-
-    def _pad(self, img):
-        img_ = img.copy()
-
-        if self._is_expanded_grey_format(img):
-            img_ = np.squeeze(img_, axis=-1)
-
-        h_pad, w_pad = self.pad
-        img_ = cv2.copyMakeBorder(img_.copy(), h_pad, h_pad, w_pad, w_pad, PadFixed.PAD_FUNCTION[self.pad_method])
-
-        if self._is_expanded_grey_format(img):
-            img_ = np.expand_dims(img_, axis=-1)
-
-        return img_
-
-    def get_parameters(self):
-        return []
-
-    def _is_expanded_grey_format(self, img):
-        if len(img.shape) == 3 and img.shape[2] == 1:
-            return True
-        else:
-            return False
-
 
 def test_time_augmentation_transform(image, tta_parameters):
     if tta_parameters['ud_flip']:
@@ -175,64 +125,6 @@ def rotate(image, angle, axes=(0, 1)):
     return np.rot90(image, k, axes=axes)
 
 
-class RandomCropFixedSize(iaa.Augmenter):
-    def __init__(self, px=None, name=None, deterministic=False, random_state=None):
-        super(RandomCropFixedSize, self).__init__(name=name, deterministic=deterministic, random_state=random_state)
-#        pdb.set_trace()
-        self.px = px
-        if isinstance(self.px, tuple):
-            self.px_h, self.px_w = self.px
-        elif isinstance(self.px, int):
-            self.px_h = self.px
-            self.px_w = self.px
-        else:
-            raise NotImplementedError
-
-    def _augment_images(self, images, random_state, parents, hooks):
-        #pdb.set_trace()
-        result = []
-        seeds = random_state.randint(0, 10 ** 6, (len(images),))
-        for i, image in enumerate(images):
-            seed = seeds[i]
-            image_cr = self._random_crop(seed, image)
-            result.append(image_cr)
-        return result
-
-    def _augment_keypoints(self, keypoints_on_images, random_state, parents, hooks):
-        result = []
-        return result
-
-    def _random_crop(self, seed, image):
-        height, width = image.shape[:2]
-        #print('**_random_crop:', height, width)
-
-        np.random.seed(seed)
-        if height > self.px_h:
-            crop_top = np.random.randint(height - self.px_h)
-        elif height == self.px_h:
-            crop_top = 0
-        else:
-            raise ValueError("To big crop height")
-        crop_bottom = crop_top + self.px_h
-
-        np.random.seed(seed + 1)
-        if width > self.px_w:
-            crop_left = np.random.randint(width - self.px_w)
-        elif width == self.px_w:
-            crop_left = 0
-        else:
-            raise ValueError("To big crop width")
-        crop_right = crop_left + self.px_w
-
-        if len(image.shape) == 2:
-            image_cropped = image[crop_top:crop_bottom, crop_left:crop_right]
-        else:
-            image_cropped = image[crop_top:crop_bottom, crop_left:crop_right, :]
-        return image_cropped
-
-    def get_parameters(self):
-        return []
-
 import os
 import settings
 from PIL import Image, ImageDraw
@@ -260,5 +152,119 @@ def test_augment():
     img.show()
     Mi[0].show()
     Mi[1].show()
+
+import torchvision.transforms.functional as F
+
+class TTATransform(object):
+    def __init__(self, index):
+        self.index = index
+    def __call__(self, img):
+        trans = {
+            0: lambda x: x,
+            1: lambda x: F.hflip(x),
+            2: lambda x: F.vflip(x),
+            3: lambda x: F.vflip(F.hflip(x)),
+            4: lambda x: F.rotate(x, 90, False, False),
+            5: lambda x: F.hflip(F.rotate(x, 90, False, False)),
+            6: lambda x: F.vflip(F.rotate(x, 90, False, False)),
+            7: lambda x: F.vflip(F.hflip(F.rotate(x, 90, False, False)))
+        }
+        return trans[self.index](img)
+
+# i is tta index, 0: no change, 1: horizon flip, 2: vertical flip, 3: do both
+def tta_back_mask_np(img, index):
+    print(img.shape)
+    trans = {
+        0: lambda x: x,
+        1: lambda x: np.flip(x, 2),
+        2: lambda x: np.flip(x, 1),
+        3: lambda x: np.flip(np.flip(x, 2), 1),
+        4: lambda x: np.rot90(x, 3, axes=(1,2)),
+        5: lambda x: np.rot90(np.flip(x, 2), 3, axes=(1,2)),
+        6: lambda x: np.rot90(np.flip(x, 1), 3, axes=(1,2)),
+        7: lambda x: np.rot90(np.flip(np.flip(x,2), 1), 3, axes=(1,2))
+    }
+
+    return trans[index](img)
+
+def test_tta():
+    img_f = os.path.join(settings.TEST_IMG_DIR, '0c2637aa9.jpg')
+    img = Image.open(img_f)
+    img = img.convert('RGB')
+
+    tta_index = 7
+    trans1 = TTATransform(tta_index)
+    img = trans1(img)
+    #img.show()
+
+    img_np = np.array(img)
+    img_np = np.expand_dims(img_np, 0)
+    print(img_np.shape)
+    img_np = tta_back_mask_np(img_np, tta_index)
+    img_np = np.reshape(img_np, (768, 768, 3))
+    img_back = F.to_pil_image(img_np)
+    img_back.show()
+
+
+def tta_4(img):
+    return F.rotate(img, 90, False, False)
+
+def tta_5(img):
+    return F.hflip(tta_4(img))
+
+def tta_6(img):
+    return F.vflip(tta_4(img))
+
+def tta_7(img):
+    return F.vflip(F.hflip(tta_4(img)))
+
+def tta_4_back(img):
+    return F.rotate(img, 270, False, False)
+
+def tta_5_back(img):
+    return tta_4_back(F.hflip(img))
+
+def tta_6_back(img):
+    return tta_4_back(F.vflip(img))
+
+def tta_7_back(img):
+    return tta_4_back(F.vflip(F.hflip(img)))
+
+def tta_back_np(img, tta_index):
+    np_img = np.array(img)
+    print(np_img.shape)
+
+    trans = {
+        4: lambda x: np.rot90(x, 3),
+        5: lambda x: np.rot90(np.flip(x, 1), 3),
+        6: lambda x: np.rot90(np.flip(x, 0), 3),
+        7: lambda x: np.rot90(np.flip(np.flip(x,1), 0), 3)
+    }
+    np_img = trans[tta_index](np_img)
+
+    return F.to_pil_image(np_img)
+
+
+def test_rotate():
+    img_f = os.path.join(settings.TEST_IMG_DIR, '0c2637aa9.jpg')
+    img = Image.open(img_f)
+    img = img.convert('RGB')
+    #img_np = np.array(img)
+    #img_np_r90 = np.rot90(img_np,1)
+    #img_np_r90 = np.rot90(img_np_r90,3)
+    #img_2 = F.to_pil_image(img_np_r90)
+    #img = F.rotate(img, 90, False, False)
+    #ImageDraw.Draw(img_2)
+    #img_2.show()
+    #img.show()
+
+    img_aug = tta_7(img)
+    #img_aug = tta_7_back(img_aug)
+    img_aug = tta_back_np(img_aug, 7)
+    img_aug.show()
+
+
 if __name__ == '__main__':
-    test_augment()
+    #test_augment()
+    #test_rotate()
+    test_tta()
