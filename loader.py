@@ -41,14 +41,16 @@ class ImageDataset(data.Dataset):
 
     def aug_image(self, img, mask=None):
         if mask is not None:
-            Xi, Mi = from_pil(img, mask)
+            #Xi, Mi = from_pil(img, mask)
+            Xi, Mi = img, mask
+            
             #print('>>>', Xi.shape, Mi.shape)
             #print(Mi)
             if self.augment_with_target is not None:
-                Xi, Mi = self.augment_with_target(Xi, Mi)
+                Xi, Mi  = self.augment_with_target(Xi, Mi)
             if self.image_augment is not None:
                 Xi = self.image_augment(Xi)
-            Xi, Mi = to_pil(Xi, Mi)
+            #Xi, Mi = to_pil(Xi, Mi)
 
             if self.mask_transform is not None:
                 Mi = self.mask_transform(Mi)
@@ -58,10 +60,11 @@ class ImageDataset(data.Dataset):
 
             return Xi, Mi#torch.cat(Mi, dim=0)
         else:
-            Xi = from_pil(img)
+            #Xi = from_pil(img)
+            Xi = img
             if self.image_augment is not None:
                 Xi = self.image_augment(Xi)
-            Xi = to_pil(Xi)
+            #Xi = to_pil(Xi)
 
             if self.image_transform is not None:
                 Xi = self.image_transform(Xi)
@@ -107,6 +110,13 @@ def to_tensor(x):
     x_ = torch.from_numpy(x_)
     return x_
 
+img_mask_transforms = aug.Compose([
+    aug.RandomHFlipWithMask(),
+    aug.RandomVFlipWithMask(),
+    aug.RandomRotateWithMask([0,90]),
+    aug.RandomRotateWithMask(15),
+])
+
 img_transforms = transforms.Compose(
         [
             transforms.Resize((settings.H, settings.W)),
@@ -146,7 +156,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
     train_shuffle = True
     train_meta, val_meta = get_train_val_meta(drop_empty=drop_empty)
 
-    img_mask_aug_train = ImgAug(aug.get_affine_seq('edge'))
+    img_mask_aug_train = img_mask_transforms #ImgAug(aug.get_affine_seq('edge'))
     img_mask_aug_val = None
 
     if dev_mode:
@@ -158,7 +168,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
 
     train_set = ImageDataset(True, train_meta, img_dir=settings.TRAIN_IMG_DIR,
                             augment_with_target=img_mask_aug_train,
-                            image_augment=ImgAug(aug.brightness_seq),
+                            image_augment=transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),  #ImgAug(aug.brightness_seq),
                             image_transform=img_transforms,
                             mask_transform=mask_transforms)
 
@@ -191,15 +201,16 @@ def get_test_loader(batch_size=16, index=0, dev_mode=False):
 
     return test_loader
 
-
+import torchvision.transforms.functional as F
 def test_train_loader():
-    train_loader, val_loader = get_train_val_loaders(batch_size=4, dev_mode=False)
+    train_loader, val_loader = get_train_val_loaders(batch_size=4, dev_mode=False, drop_empty=True)
     print(train_loader.num, val_loader.num)
     for i, data in enumerate(train_loader):
         imgs, masks, ship = data
         #pdb.set_trace()
         print(imgs.size(), masks.size(), ship.size())
         print(ship)
+        F.to_pil_image(masks[0]).show()
         break
         #print(imgs)
         #print(masks)
@@ -213,8 +224,8 @@ def test_test_loader():
             break
 
 if __name__ == '__main__':
-    test_test_loader()
-    #test_train_loader()
+    #test_test_loader()
+    test_train_loader()
     #small_dict, img_ids = load_small_train_ids()
     #print(img_ids[:10])
     #print(get_tta_transforms(3, 'edge'))

@@ -1,36 +1,15 @@
 import cv2
 import numpy as np
+import random
+import torchvision.transforms.functional as F
+from torchvision.transforms import RandomResizedCrop, ColorJitter
+import PIL
+import collections
 import imgaug as ia
 from imgaug import augmenters as iaa
 
 from utils import reseed, from_pil, to_pil, ImgAug
 import pdb
-
-def _perspective_transform_augment_images(self, images, random_state, parents, hooks):
-    result = images
-    if not self.keep_size:
-        result = list(result)
-
-    matrices, max_heights, max_widths = self._create_matrices(
-        [image.shape for image in images],
-        random_state
-    )
-
-    for i, (M, max_height, max_width) in enumerate(zip(matrices, max_heights, max_widths)):
-        warped = cv2.warpPerspective(images[i], M, (max_width, max_height))
-        if warped.ndim == 2 and images[i].ndim == 3:
-            warped = np.expand_dims(warped, 2)
-        if self.keep_size:
-            h, w = images[i].shape[0:2]
-            warped = ia.imresize_single_image(warped, (h, w))
-
-        result[i] = warped
-
-    return result
-
-
-iaa.PerspectiveTransform._augment_images = _perspective_transform_augment_images
-
 
 def get_affine_seq(pad_mode='reflect'):
     affine_seq = iaa.Sequential([
@@ -78,53 +57,6 @@ brightness_seq =  iaa.Sequential([
 
 
 
-def test_time_augmentation_transform(image, tta_parameters):
-    if tta_parameters['ud_flip']:
-        image = np.flipud(image)
-    if tta_parameters['lr_flip']:
-        image = np.fliplr(image)
-    if tta_parameters['color_shift']:
-        random_color_shift = reseed(intensity_seq, deterministic=False)
-        image = random_color_shift.augment_image(image)
-    image = rotate(image, tta_parameters['rotation'])
-    return image
-
-
-def test_time_augmentation_inverse_transform(image, tta_parameters):
-    image = per_channel_rotation(image.copy(), -1 * tta_parameters['rotation'])
-
-    if tta_parameters['lr_flip']:
-        image = per_channel_fliplr(image.copy())
-    if tta_parameters['ud_flip']:
-        image = per_channel_flipud(image.copy())
-    return image
-
-
-def per_channel_flipud(x):
-    x_ = x.copy()
-    for i, channel in enumerate(x):
-        x_[i, :, :] = np.flipud(channel)
-    return x_
-
-
-def per_channel_fliplr(x):
-    x_ = x.copy()
-    for i, channel in enumerate(x):
-        x_[i, :, :] = np.fliplr(channel)
-    return x_
-
-
-def per_channel_rotation(x, angle):
-    return rotate(x, angle, axes=(1, 2))
-
-
-def rotate(image, angle, axes=(0, 1)):
-    if angle % 90 != 0:
-        raise Exception('Angle must be a multiple of 90.')
-    k = angle // 90
-    return np.rot90(image, k, axes=axes)
-
-
 import os
 import settings
 from PIL import Image, ImageDraw
@@ -153,7 +85,108 @@ def test_augment():
     Mi[0].show()
     Mi[1].show()
 
-import torchvision.transforms.functional as F
+
+class RandomHFlipWithMask(object):
+    def __init__(self, p=0.5):
+        self.p = p
+    def __call__(self, *imgs):
+        if random.random() < self.p:
+            return map(F.hflip, imgs)
+        else:
+            return imgs
+
+class RandomVFlipWithMask(object):
+    def __init__(self, p=0.5):
+        self.p = p
+    def __call__(self, *imgs):
+        if random.random() < self.p:
+            return map(F.vflip, imgs)
+        else:
+            return imgs
+
+class RandomResizedCropWithMask(RandomResizedCrop):
+    def __init__(self, size, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.), interpolation=Image.BILINEAR):
+        super(RandomResizedCropWithMask, self).__init__(size, scale, ratio, interpolation)
+    def __call__(self, *imgs):
+        i, j, h, w = self.get_params(imgs[0], self.scale, self.ratio)
+        return map(lambda x: F.resized_crop(x, i, j, h, w, self.size, self.interpolation), imgs)
+
+class RandomRotateWithMask(object):
+    def __init__(self, degrees, pad_mode='reflect', expand=False, center=None):
+        self.pad_mode = pad_mode
+        self.expand = expand
+        self.center = center
+        self.degrees = degrees
+
+    def __call__(self, *imgs):
+        angle = self.get_angle()
+        if angle == int(angle) and angle % 90 == 0:
+            if angle == 0:
+                return imgs
+            else:
+                #print(imgs)
+                return map(lambda x: F.rotate(x, angle, False, False, None), imgs)
+        else:
+            return map(lambda x: self._pad_rotate(x, angle), imgs)
+
+    def get_angle(self):
+        if isinstance(self.degrees, collections.Sequence):
+            index = int(random.random() * len(self.degrees))
+            return self.degrees[index]
+        else:
+            return random.uniform(-self.degrees, self.degrees)
+
+    def _pad_rotate(self, img, angle):
+        w, h = img.size
+        img = F.pad(img, w//2, 0, self.pad_mode)
+        img = F.rotate(img, angle, False, self.expand, self.center)
+        img = F.center_crop(img, (w, h))
+        return img
+
+class Compose(object):
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, *imgs):
+        for t in self.transforms:
+            imgs = t(*imgs)
+        return imgs
+    def __repr__(self):
+        format_string = self.__class__.__name__ + '('
+        for t in self.transforms:
+            format_string += '\n'
+            format_string += '    {0}'.format(t)
+        format_string += '\n)'
+        return format_string
+
+def test_transform():
+    img_id = '00abc623a.jpg'
+    img = Image.open(os.path.join(settings.TRAIN_IMG_DIR, img_id)).convert('RGB')
+    mask = Image.open(os.path.join(settings.TRAIN_MASK_DIR, img_id)).convert('L').point(lambda x: 0 if x < 128 else 1, 'L')
+
+    #trans = RandomResizedCropWithMask(768, scale=(0.6, 1))
+    trans = Compose([
+        RandomHFlipWithMask(),
+        RandomVFlipWithMask(),
+        RandomRotateWithMask([0, 90, 180, 270]),
+        RandomRotateWithMask(20)
+    ])
+    #trans = RandomRotateWithMask([0, 90, 180, 270])
+
+    img, mask = trans(img, mask)
+
+    img.show()
+    mask.point(lambda x: x*255).show()
+
+def test_color_trans():
+    img_id = '00abc623a.jpg'
+    img = Image.open(os.path.join(settings.TRAIN_IMG_DIR, img_id)).convert('RGB')
+    trans = ColorJitter(0.2, 0.2, 0.2, 0.2)
+
+    img2 = trans(img)
+    img.show()
+    img2.show()
+
 
 class TTATransform(object):
     def __init__(self, index):
@@ -267,4 +300,6 @@ def test_rotate():
 if __name__ == '__main__':
     #test_augment()
     #test_rotate()
-    test_tta()
+    #test_tta()
+    #test_transform()
+    test_color_trans()
