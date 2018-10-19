@@ -1,89 +1,16 @@
+import os
 import cv2
 import numpy as np
 import random
 import torchvision.transforms.functional as F
 from torchvision.transforms import RandomResizedCrop, ColorJitter
 import PIL
+from PIL import Image
 import collections
-import imgaug as ia
-from imgaug import augmenters as iaa
 
-from utils import reseed, from_pil, to_pil, ImgAug
-import pdb
-
-def get_affine_seq(pad_mode='reflect'):
-    affine_seq = iaa.Sequential([
-        # General
-        iaa.Fliplr(0.5),
-        iaa.Flipud(0.5), 
-        iaa.Affine(
-            scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-            rotate=(-20, 20),
-            translate_percent={"x": (-0.15, 0.15), "y": (-0.15, 0.15)}, mode=pad_mode #'reflect' #symmetric
-        ),
-        # Deformations
-        #iaa.Sometimes(0.3, iaa.PiecewiseAffine(scale=(0.04, 0.08))),
-        #iaa.Sometimes(0.3, iaa.PerspectiveTransform(scale=(0.05, 0.1))),
-    ], random_order=True)
-    return affine_seq
-
-intensity_seq = iaa.Sequential([
-    iaa.Invert(0.3),
-    iaa.Sometimes(0.3, iaa.ContrastNormalization((0.5, 1.5))),
-    iaa.OneOf([
-        iaa.Noop(),
-        iaa.Sequential([
-            iaa.OneOf([
-                iaa.Add((-10, 10)),
-                iaa.AddElementwise((-10, 10)),
-                iaa.Multiply((0.95, 1.05)),
-                iaa.MultiplyElementwise((0.95, 1.05)),
-            ]),
-        ]),
-        iaa.OneOf([
-            iaa.GaussianBlur(sigma=(0.0, 1.0)),
-            iaa.AverageBlur(k=(2, 5)),
-            iaa.MedianBlur(k=(3, 5))
-        ])
-    ])
-], random_order=False)
-
-brightness_seq =  iaa.Sequential([
-    iaa.Multiply((0.8, 1.2)),
-    iaa.Sometimes(0.3,
-        iaa.GaussianBlur(sigma=(0, 0.5))
-    )
-], random_order=False)
-
-
-
-import os
+from utils import reseed, from_pil, to_pil
 import settings
-from PIL import Image, ImageDraw
-def test_augment():
-    img = os.path.join(settings.TRAIN_IMG_DIR, '003c477d7c.png')
-    mask = os.path.join(settings.TRAIN_MASK_DIR, '003c477d7c.png')
-    img = Image.open(img)
-    img = img.convert('RGB')
-    mask = Image.open(mask)
-    mask = mask.convert('L').point(lambda x: 0 if x < 128 else 255, '1')
-    print(type(mask))
-    mask = from_pil(mask)
-    Mi = [to_pil(mask == class_nr) for class_nr in [0, 1]]
-    img, *Mi = from_pil(img, *Mi)
-
-    aug = ImgAug(crop_seq(crop_size=(settings.H, settings.W), pad_size=(14,14), pad_method='edge'))
-    aug2 = ImgAug(brightness_seq)
-    img, *Mi = aug(img, *Mi)
-    img = aug2(img)
-    
-    img, *Mi = to_pil(img, Mi[0]*255, Mi[1]*255)
-    ImageDraw.Draw(img)
-    ImageDraw.Draw(Mi[0])
-    ImageDraw.Draw(Mi[1])
-    img.show()
-    Mi[0].show()
-    Mi[1].show()
+import pdb
 
 
 class RandomHFlipWithMask(object):
@@ -109,6 +36,7 @@ class RandomResizedCropWithMask(RandomResizedCrop):
         super(RandomResizedCropWithMask, self).__init__(size, scale, ratio, interpolation)
     def __call__(self, *imgs):
         i, j, h, w = self.get_params(imgs[0], self.scale, self.ratio)
+        #print(i,j,h,w)
         return map(lambda x: F.resized_crop(x, i, j, h, w, self.size, self.interpolation), imgs)
 
 class RandomRotateWithMask(object):
@@ -160,7 +88,7 @@ class Compose(object):
         return format_string
 
 def test_transform():
-    img_id = '00abc623a.jpg'
+    img_id = '0a48b7268.jpg'
     img = Image.open(os.path.join(settings.TRAIN_IMG_DIR, img_id)).convert('RGB')
     mask = Image.open(os.path.join(settings.TRAIN_MASK_DIR, img_id)).convert('L').point(lambda x: 0 if x < 128 else 1, 'L')
 
@@ -169,7 +97,8 @@ def test_transform():
         RandomHFlipWithMask(),
         RandomVFlipWithMask(),
         RandomRotateWithMask([0, 90, 180, 270]),
-        RandomRotateWithMask(20)
+        #RandomRotateWithMask(15), 
+        RandomResizedCropWithMask(768, scale=(0.81, 1))
     ])
     #trans = RandomRotateWithMask([0, 90, 180, 270])
 
@@ -181,7 +110,7 @@ def test_transform():
 def test_color_trans():
     img_id = '00abc623a.jpg'
     img = Image.open(os.path.join(settings.TRAIN_IMG_DIR, img_id)).convert('RGB')
-    trans = ColorJitter(0.2, 0.2, 0.2, 0.2)
+    trans = ColorJitter(0.1, 0.1, 0.1, 0.1)
 
     img2 = trans(img)
     img.show()
@@ -301,5 +230,5 @@ if __name__ == '__main__':
     #test_augment()
     #test_rotate()
     #test_tta()
-    #test_transform()
-    test_color_trans()
+    test_transform()
+    #test_color_trans()
