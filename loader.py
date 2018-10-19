@@ -6,7 +6,7 @@ import torch
 import torch.utils.data as data
 from torchvision import datasets, models, transforms
 import settings
-from utils import ImgAug, from_pil, to_pil, get_train_val_meta, get_test_meta
+from utils import get_train_val_meta, get_test_meta
 import augmentation as aug
 
 import pdb

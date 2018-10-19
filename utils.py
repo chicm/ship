@@ -2,8 +2,6 @@ import os
 import time
 import numpy as np
 import pandas as pd
-import imgaug as ia
-from imgaug import augmenters as iaa
 from PIL import Image
 from pycocotools import mask as cocomask
 from sklearn.utils import shuffle
@@ -106,43 +104,6 @@ def to_pil(*images):
         return images[0]
     else:
         return images
-
-def get_seed():
-    seed = int(time.time()) + int(os.getpid())
-    return seed
-
-def reseed(augmenter, deterministic=True):
-    augmenter.random_state = ia.new_random_state(get_seed())
-    if deterministic:
-        augmenter.deterministic = True
-
-    for lists in augmenter.get_children_lists():
-        for aug in lists:
-            aug = reseed(aug, deterministic=True)
-    return augmenter
-
-class ImgAug:
-    def __init__(self, augmenters):
-        if not isinstance(augmenters, list):
-            augmenters = [augmenters]
-        self.augmenters = augmenters
-        self.seq_det = None
-
-    def _pre_call_hook(self):
-        seq = iaa.Sequential(self.augmenters)
-        seq = reseed(seq, deterministic=True)
-        self.seq_det = seq
-
-    def transform(self, *images):
-        images = [self.seq_det.augment_image(image) for image in images]
-        if len(images) == 1:
-            return images[0]
-        else:
-            return images
-
-    def __call__(self, *args):
-        self._pre_call_hook()
-        return self.transform(*args)
 
 if __name__ == '__main__':
     train_meta, val_meta = get_train_val_meta()
