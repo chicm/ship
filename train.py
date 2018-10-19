@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRSchedu
 import pdb
 import settings
 from loader import get_train_val_loaders
-from models import UNetShipV1
+from models import UNetShipV1, UNetShipV2
 from lovasz_losses import lovasz_hinge, lovasz_softmax
 from dice_losses import mixed_dice_bce_loss, FocalLoss2d
 from postprocessing import binarize, resize_image
@@ -220,17 +220,16 @@ def generate_preds(args, outputs, target_size, threshold=0.5):
 
 if __name__ == '__main__':
     
-    parser = argparse.ArgumentParser(description='Salt segmentation')
+    parser = argparse.ArgumentParser(description='Ship detection')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
-    parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
-    parser.add_argument('--lr', default=0.002, type=float, help='learning rate')
+    parser.add_argument('--lr', default=0.0004, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--batch_size', default=8, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
     parser.add_argument('--epochs', default=200, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
-    parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
+    parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')

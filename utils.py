@@ -71,7 +71,7 @@ def get_train_val_meta(drop_empty=False):
     df_val = df.iloc[split_index:]
 
     df_train_ship = df_train[df_train['ship'] == 1]
-    df_train_no_ship = shuffle(df_train[df_train['ship'] == 0]).iloc[:40000]
+    df_train_no_ship = shuffle(df_train[df_train['ship'] == 0]).iloc[:20000]
     
     df_val_ship = df_val[df_val['ship'] == 1]
     df_val_no_ship = df_val[df_val['ship'] == 0].iloc[:2000]

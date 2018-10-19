@@ -10,7 +10,7 @@ import cv2
 
 import settings
 from loader import get_test_loader
-from models import UNetShipV1
+from models import UNetShipV1, UNetShipV2
 from postprocessing import binarize, resize_image, split_mask, mask_to_bbox
 from utils import run_length_encoding
 from augmentation import tta_back_mask_np

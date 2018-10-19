@@ -242,6 +242,113 @@ class UNetShipV1(nn.Module):
 
         return [param_group1, param_group2]
 
+
+class UNetShipV2(nn.Module):
+    def __init__(self, encoder_depth=34, dropout_2d=0.4):
+        super(UNetShipV2, self).__init__()
+        assert dropout_2d < 1
+        self.name = 'UNetShipV2_'+str(encoder_depth)
+        self.dropout_2d = dropout_2d
+        num_filters = 32
+
+        self.resnet, nbtm = create_resnet(encoder_depth)
+
+        self.encoder1 = EncoderBlock(
+            nn.Sequential(self.resnet.conv1, self.resnet.bn1, self.resnet.relu),
+            num_filters*2
+        )
+        self.encoder2 = EncoderBlock(self.resnet.layer1, nbtm//8)
+        self.encoder3 = EncoderBlock(self.resnet.layer2, nbtm//4)
+        self.encoder4 = EncoderBlock(self.resnet.layer3, nbtm//2)
+        self.encoder5 = EncoderBlock(self.resnet.layer4, nbtm)
+
+        center_block = nn.Sequential(
+            ConvBn2d(nbtm, nbtm, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            ConvBn2d(nbtm, nbtm//2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        self.center = EncoderBlock(center_block, nbtm//2)
+
+        self.decoder5 = DecoderBlock(nbtm // 2, nbtm, num_filters * 16, 64)
+        self.decoder4 = DecoderBlock(64, nbtm // 2,  num_filters * 8,  64)
+        self.decoder3 = DecoderBlock(64, nbtm // 4,  num_filters * 4,  64)
+        self.decoder2 = DecoderBlock(64, nbtm // 8, num_filters * 2,  64)
+        self.decoder1 = DecoderBlock(64, 0, num_filters, 64)
+
+        self.logit = nn.Sequential(
+            nn.Conv2d(320, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 1, kernel_size=1, padding=0)
+        )
+
+        self.logit_image = nn.Sequential(
+            nn.Linear(nbtm, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 1),
+        )
+
+    def forward(self, x):
+        x = self.encoder1(x) #; print('x:', x.size())
+        e2 = self.encoder2(x) #; print('e2:', e2.size())
+        e3 = self.encoder3(e2) #; print('e3:', e3.size())
+        e4 = self.encoder4(e3) #; print('e4:', e4.size())
+        e5 = self.encoder5(e4) #; print('e5:', e5.size())
+
+        center = self.center(e5) #; print('center:', center.size())
+
+        d5 = self.decoder5(center, e5) #; print('d5:', d5.size())
+        d4 = self.decoder4(d5, e4) #; print('d4:', d4.size())
+        d3 = self.decoder3(d4, e3) #; print('d3:', d3.size())
+        d2 = self.decoder2(d3, e2) #; print('d2:', d2.size())
+        d1 = self.decoder1(d2) #; print('d1:', d1.size())
+
+        # hyper column, to be enabled later
+        f = torch.cat([
+            d1,
+            F.interpolate(d2, scale_factor=2, mode='bilinear', align_corners=False),
+            F.interpolate(d3, scale_factor=4, mode='bilinear', align_corners=False),
+            F.interpolate(d4, scale_factor=8, mode='bilinear', align_corners=False),
+            F.interpolate(d5, scale_factor=16, mode='bilinear', align_corners=False),
+        ], 1) 
+
+        # ship / no ship classifier
+        img_f = F.adaptive_avg_pool2d(e5, 1).view(x.size(0), -1)
+        img_f = F.dropout(img_f, p=0.5, training=self.training)
+        img_logit = self.logit_image(img_f).view(-1)
+
+        f =  F.dropout2d(f, p=self.dropout_2d)#; print(f.size())
+
+        return self.logit(f), img_logit
+    
+    def freeze_bn(self):
+        '''Freeze BatchNorm layers.'''
+        for layer in self.modules():
+            if isinstance(layer, nn.BatchNorm2d):
+                layer.eval()
+
+    def get_params(self, base_lr):
+        group1 = [self.encoder1, self.encoder2, self.encoder3, self.encoder4, self.encoder5]
+        group2 = [self.decoder1, self.decoder2, self.decoder3, self.decoder4, self.decoder5, self.center, self.logit, self.logit_image]
+
+        params1 = []
+        for x in group1:
+            for p in x.parameters():
+                params1.append(p)
+        
+        param_group1 = {'params': params1, 'lr': base_lr / 5}
+
+        params2 = []
+        for x in group2:
+            for p in x.parameters():
+                params2.append(p)
+        param_group2 = {'params': params2, 'lr': base_lr}
+
+        return [param_group1, param_group2]
+
+
+
 class DecoderBlockV5(nn.Module):
     def __init__(self, in_channels_x, in_channels_e, middle_channels, out_channels):
         super(DecoderBlockV5, self).__init__()
@@ -339,8 +446,8 @@ class UNetResNetV5(nn.Module):
 
 
 def test():
-    model = UNetShipV1(34, num_filters=32).cuda()
-    inputs = torch.randn(2,3,256,256).cuda()
+    model = UNetShipV2(34).cuda()
+    inputs = torch.randn(2,3,768,768).cuda()
     out, _ = model(inputs)
     #print(model)
     print(out.size(), _.size()) #, cls_taret.size())
