@@ -1,12 +1,15 @@
 import os
 import numpy as np
 import pandas as pd
+import torch
 from scipy import ndimage as ndi
 from skimage.transform import resize
 import cv2
 from scipy import ndimage
-
+from loader import get_train_val_loaders
 from utils import run_length_decoding
+from metrics import intersection_over_union, intersection_over_union_thresholds
+from models import UNetShipV1
 import pdb
 import settings
 
@@ -57,6 +60,7 @@ def mask_to_bbox(mask):
 
 def masks_to_bounding_boxes(mask):
     labeled_mask, n_objs = ndimage.label(mask)
+    FILL_VALUE = 1
 
     if labeled_mask.max() == 0:
         return labeled_mask
@@ -68,11 +72,58 @@ def masks_to_bounding_boxes(mask):
             rect = cv2.minAreaRect(cnt[0])
             box = cv2.boxPoints(rect)
             box = np.int0(box)
-            cv2.drawContours(img_box, [box], 0, label_id, -1)
+            cv2.drawContours(img_box, [box], 0, FILL_VALUE, -1)
         return img_box
 
+def get_val_result(batch_size=16, ckp=None):
+    model = UNetShipV1(34)
+    model_file = os.path.join(settings.MODEL_DIR, model.name, 'best.pth')
+    if ckp is None:
+        ckp = model_file
+    model.load_state_dict(torch.load(ckp))
+    model = model.cuda()
+    model.eval()
 
+    _, val_loader = get_train_val_loaders(batch_size=batch_size, drop_empty=True)
+    outputs = []
+    with torch.no_grad():
+        for img, target, ship_target in val_loader:
+            img, target, ship_target = img.cuda(), target.cuda(), ship_target.cuda()
+            output, _ = model(img)
+            #print(output.size(), salt_out.size())
+            output = torch.sigmoid(output)
+            
+            for o in output.cpu():
+                outputs.append(o.squeeze().numpy())
+    return outputs, val_loader.y_true
+
+
+def test_bbox():
+    tgt_size = (settings.ORIG_H, settings.ORIG_W)
+    outputs, y_true = get_val_result(16)
+    resized = list(map(lambda x: resize_image(x, tgt_size), outputs))
+    print(resized[0].shape, len(resized))
+    y_pred = list(map(lambda x: (x > 0.5).astype(np.uint8), resized))
+    print(y_pred[0].shape, len(y_pred))
+
+    iou_score = intersection_over_union(y_true, y_pred)
+    iout_score = intersection_over_union_thresholds(y_true, y_pred)
+    print(iou_score, iout_score)
+
+    processed = list(map(lambda x: masks_to_bounding_boxes(x), y_pred))
+
+    iou_score = intersection_over_union(y_true, processed)
+    iout_score = intersection_over_union_thresholds(y_true, processed)
+    print(iou_score, iout_score)
+
+def test_bbox_2():
+    a = np.zeros((5,5))
+    a[0,:] = 1
+    a[4,:] = 1
+    b = masks_to_bounding_boxes(a)
+    print(b)
 
 if __name__ == '__main__':
-    pass
+    test_bbox()
+    #test_bbox_2()
     #save_pseudo_label_masks('V456_ensemble_1011.csv')

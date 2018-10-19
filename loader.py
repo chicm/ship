@@ -186,6 +186,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
     val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_set.collate_fn)
     val_loader.num = len(val_set)
     val_loader.y_true = read_masks(val_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
+    val_loader.meta = val_meta
 
     return train_loader, val_loader
 
