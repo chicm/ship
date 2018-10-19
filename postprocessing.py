@@ -97,6 +97,9 @@ def get_val_result(batch_size=16, ckp=None):
                 outputs.append(o.squeeze().numpy())
     return outputs, val_loader.y_true
 
+def save_val_result():
+    outputs, y_true = get_val_result(16)
+    np.savez_compressed(os.path.join(settings.DATA_DIR, 'tmp', 'val_out.npz'), outputs=outputs, y_true=y_true)
 
 def test_bbox():
     tgt_size = (settings.ORIG_H, settings.ORIG_W)
@@ -124,6 +127,7 @@ def test_bbox_2():
     print(b)
 
 if __name__ == '__main__':
-    test_bbox()
+    #test_bbox()
+    save_val_result()
     #test_bbox_2()
     #save_pseudo_label_masks('V456_ensemble_1011.csv')
