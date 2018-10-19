@@ -1,7 +1,6 @@
 import os
 import local_settings
 
-H, W = 256, 256
 ORIG_H, ORIG_W = 768, 768
 
 DATA_DIR = local_settings.DATA_DIR

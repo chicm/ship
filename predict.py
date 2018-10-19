@@ -27,7 +27,7 @@ def do_tta_predict(args, model, ckp_path, tta_indices):
     # i is tta index, 0: no change, 1: horizon flip, 2: vertical flip, 3: do both
     for flip_index in tta_indices:
         print('flip_index:', flip_index)
-        test_loader = get_test_loader(args.batch_size, index=flip_index, dev_mode=args.dev_mode)
+        test_loader = get_test_loader(args.batch_size, index=flip_index, dev_mode=args.dev_mode, img_sz=args.img_sz)
         meta = test_loader.meta
         outputs = None
         cls_outputs = None
@@ -150,6 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', default=None, type=str, help='exp name')
     parser.add_argument('--sub_file', default='sub_2.csv', type=str, help='submission file')
     parser.add_argument('--dev_mode', action='store_true')
+    parser.add_argument('--img_sz', default=384, type=int, help='image size')
     #parser.add_argument('--bbox', action='store_true')
 
 

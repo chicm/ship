@@ -41,16 +41,12 @@ class ImageDataset(data.Dataset):
 
     def aug_image(self, img, mask=None):
         if mask is not None:
-            #Xi, Mi = from_pil(img, mask)
             Xi, Mi = img, mask
             
-            #print('>>>', Xi.shape, Mi.shape)
-            #print(Mi)
             if self.augment_with_target is not None:
                 Xi, Mi  = self.augment_with_target(Xi, Mi)
             if self.image_augment is not None:
                 Xi = self.image_augment(Xi)
-            #Xi, Mi = to_pil(Xi, Mi)
 
             if self.mask_transform is not None:
                 Mi = self.mask_transform(Mi)
@@ -60,11 +56,9 @@ class ImageDataset(data.Dataset):
 
             return Xi, Mi#torch.cat(Mi, dim=0)
         else:
-            #Xi = from_pil(img)
             Xi = img
             if self.image_augment is not None:
                 Xi = self.image_augment(Xi)
-            #Xi = to_pil(Xi)
 
             if self.image_transform is not None:
                 Xi = self.image_transform(Xi)
@@ -76,10 +70,6 @@ class ImageDataset(data.Dataset):
             image = image.convert('RGB')
         else:
             image = image.convert('L').point(lambda x: 0 if x < 128 else 1, 'L')
-            #image = np.asarray(image) #.convert('L')
-            #print(np.max(image))
-            #print(image)
-            #pass
         return image
 
     def __len__(self):
@@ -110,40 +100,38 @@ def to_tensor(x):
     x_ = torch.from_numpy(x_)
     return x_
 
-img_mask_transforms = aug.Compose([
-    aug.RandomHFlipWithMask(),
-    aug.RandomVFlipWithMask(),
-    aug.RandomRotateWithMask([0,90]),
-    #aug.RandomRotateWithMask(15),
-    aug.RandomResizedCropWithMask(settings.H, scale=(0.9, 1))
-])
+def get_img_mask_transforms(img_sz):
+    img_mask_transforms = aug.Compose([
+        aug.RandomHFlipWithMask(),
+        aug.RandomVFlipWithMask(),
+        aug.RandomRotateWithMask([0,90]),
+        #aug.RandomRotateWithMask(15),
+        aug.RandomResizedCropWithMask(img_sz, scale=(0.9, 1))
+    ])
+    return img_mask_transforms
 
-img_transforms = transforms.Compose(
+def get_img_transforms(img_sz):
+    img_transforms = transforms.Compose(
         [
-            transforms.Resize((settings.H, settings.W)),
+            transforms.Resize((img_sz, img_sz)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
     )
+    return img_transforms
 
-mask_transforms = transforms.Compose(
+def get_mask_transforms(img_sz):
+    mask_transforms = transforms.Compose(
         [
-            transforms.Resize((settings.H, settings.W)),
+            transforms.Resize((img_sz, img_sz)),
             transforms.Lambda(to_array),
             transforms.Lambda(to_tensor),
         ]
     )
+    return mask_transforms
 
-def get_tta_transforms(index):
-    '''
-    tta_transforms = {
-        0: [],
-        1: [transforms.RandomHorizontalFlip(p=2.)],
-        2: [transforms.RandomVerticalFlip(p=2.)],
-        3: [transforms.RandomHorizontalFlip(p=2.), transforms.RandomVerticalFlip(p=2.)]
-    }
-    '''
-    return transforms.Compose([aug.TTATransform(index), *img_transforms.transforms])
+def get_tta_transforms(index, img_sz):
+    return transforms.Compose([aug.TTATransform(index), *(get_img_transforms(img_sz).transforms)])
 
 def read_masks(mask_img_ids, mask_dir):
     masks = []
@@ -153,12 +141,11 @@ def read_masks(mask_img_ids, mask_dir):
         masks.append(mask)
     return masks
 
-def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
+def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False, img_sz=384):
     train_shuffle = True
     train_meta, val_meta = get_train_val_meta(drop_empty=drop_empty)
 
-    img_mask_aug_train = img_mask_transforms #ImgAug(aug.get_affine_seq('edge'))
-    img_mask_aug_val = None
+    img_mask_aug_train = get_img_mask_transforms(img_sz) #ImgAug(aug.get_affine_seq('edge'))
 
     if dev_mode:
         train_shuffle = False
@@ -170,8 +157,8 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
     train_set = ImageDataset(True, train_meta, img_dir=settings.TRAIN_IMG_DIR,
                             augment_with_target=img_mask_aug_train,
                             image_augment=transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),  #ImgAug(aug.brightness_seq),
-                            image_transform=img_transforms,
-                            mask_transform=mask_transforms)
+                            image_transform=get_img_transforms(img_sz),
+                            mask_transform=get_mask_transforms(img_sz))
 
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=train_shuffle, num_workers=4, collate_fn=train_set.collate_fn, drop_last=True)
     train_loader.num = len(train_set)
@@ -179,10 +166,10 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
         train_loader.y_true = read_masks(train_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
 
     val_set = ImageDataset(True, val_meta, img_dir=settings.TRAIN_IMG_DIR,
-                            augment_with_target=img_mask_aug_val,
+                            augment_with_target=None,
                             image_augment=None, #ImgAug(aug.pad_to_fit_net(64, 'reflect')),
-                            image_transform=img_transforms,
-                            mask_transform=mask_transforms)
+                            image_transform=get_img_transforms(img_sz),
+                            mask_transform=get_mask_transforms(img_sz))
     val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_set.collate_fn)
     val_loader.num = len(val_set)
     val_loader.y_true = read_masks(val_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
@@ -190,13 +177,13 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False):
 
     return train_loader, val_loader
 
-def get_test_loader(batch_size=16, index=0, dev_mode=False):
+def get_test_loader(batch_size=16, index=0, dev_mode=False, img_sz=384):
     test_meta = get_test_meta()
     if dev_mode:
         test_meta = test_meta.iloc[:10]
     test_set = ImageDataset(False, test_meta, img_dir=settings.TEST_IMG_DIR,
                             image_augment=None,
-                            image_transform=get_tta_transforms(index))
+                            image_transform=get_tta_transforms(index, img_sz))
     test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=test_set.collate_fn, drop_last=False)
     test_loader.num = len(test_set)
     test_loader.meta = test_set.meta
@@ -226,8 +213,8 @@ def test_test_loader():
             break
 
 if __name__ == '__main__':
-    #test_test_loader()
-    test_train_loader()
+    test_test_loader()
+    #test_train_loader()
     #small_dict, img_ids = load_small_train_ids()
     #print(img_ids[:10])
     #print(get_tta_transforms(3, 'edge'))
