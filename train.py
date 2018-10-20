@@ -154,6 +154,7 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     model.eval()
     #print('validating...')
     outputs = []
+    cls_preds = []
     total_num = 0
     cls_corrects = 0
     focal_loss, lovaz_loss, bce_loss, ship_loss = 0, 0, 0, 0
@@ -175,11 +176,12 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
             
             for o in output.cpu():
                 outputs.append(o.squeeze().numpy())
+            cls_preds.extend(ship_pred.squeeze().cpu().numpy().tolist())
 
     n_batches = val_loader.num // args.batch_size if val_loader.num % args.batch_size == 0 else val_loader.num // args.batch_size + 1
 
     # y_pred, list of 400 np array, each np array's shape is 101,101
-    y_pred = generate_preds(args, outputs, (settings.ORIG_H, settings.ORIG_W), threshold)
+    y_pred = generate_preds(args, outputs, cls_preds, (settings.ORIG_H, settings.ORIG_W), threshold)
 
     #draw
     if args.dev_mode:
@@ -208,12 +210,14 @@ def validate(args, model, val_loader, epoch=0, threshold=0.5, cls_threshold=0.5)
     return iout_score, iou_score, focal_loss / n_batches, lovaz_loss / n_batches, bce_loss / n_batches, ship_loss / n_batches, cls_acc
 
 
-def generate_preds(args, outputs, target_size, threshold=0.5):
+def generate_preds(args, outputs, cls_preds, target_size, threshold=0.5):
     preds = []
 
-    for output in outputs:
+    for i, output in enumerate(outputs):
         resized_img = resize_image(output, target_size=target_size)
         pred = binarize(resized_img, threshold)
+        if args.train_cls:
+            pred = pred*cls_preds[i]
         preds.append(pred)
 
     return preds
