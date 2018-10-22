@@ -29,7 +29,10 @@ def criterion(args, output, target, epoch=0):
 
     #dice_loss = mixed_dice_bce_loss(mask_output, mask_target)
     focal_loss = focal_loss2d(mask_output, mask_target)
-    lovasz_loss = lovasz_hinge(mask_output, mask_target)
+    #lovasz_loss = lovasz_hinge(mask_output, mask_target)
+
+    lovasz_loss = (lovasz_hinge(mask_output, mask_target) + lovasz_hinge(-mask_output, 1 - mask_target)) / 2
+
     bce_loss = F.binary_cross_entropy_with_logits(mask_output, mask_target)
     cls_loss = F.binary_cross_entropy_with_logits(ship_output, ship_target)
 
@@ -42,7 +45,7 @@ def criterion(args, output, target, epoch=0):
     #    return bce_loss, focal_loss.item(), lovasz_loss.item(), 0., lovasz_loss.item() + focal_loss.item()*focal_weight
     #else:
         #return lovasz_loss+focal_loss*focal_weight, focal_loss.item(), lovasz_loss.item(), 0., lovasz_loss.item() + focal_loss.item()*focal_weight
-    return lovasz_loss + bce_loss, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), cls_loss.item()
+    return lovasz_loss + bce_loss*0.1, focal_loss.item(), lovasz_loss.item(), bce_loss.item(), cls_loss.item()
 
 
 def train(args):
