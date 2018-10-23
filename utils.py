@@ -71,10 +71,10 @@ def get_train_val_meta(drop_empty=False):
     df_val = df.iloc[split_index:]
 
     df_train_ship = df_train[df_train['ship'] == 1]
-    df_train_no_ship = shuffle(df_train[df_train['ship'] == 0]).iloc[:20000]
+    df_train_no_ship = shuffle(df_train[df_train['ship'] == 0])
     
     df_val_ship = df_val[df_val['ship'] == 1]
-    df_val_no_ship = df_val[df_val['ship'] == 0].iloc[:2000]
+    df_val_no_ship = df_val[df_val['ship'] == 0].iloc[:5000]
 
     if drop_empty:
         df_train = df_train_ship
@@ -85,7 +85,7 @@ def get_train_val_meta(drop_empty=False):
 
     print(df_train.shape, df_val.shape)
 
-    return df_train, df_val[:800]
+    return df_train, df_val
 
 def get_test_meta():
     return pd.read_csv(settings.SAMPLE_SUBMISSION, na_filter=False)

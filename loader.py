@@ -105,7 +105,7 @@ def get_img_mask_transforms(img_sz):
         aug.RandomHFlipWithMask(),
         aug.RandomVFlipWithMask(),
         aug.RandomRotateWithMask([0,90]),
-        #aug.RandomRotateWithMask(15),
+        aug.RandomRotateWithMask(10),
         aug.RandomResizedCropWithMask(img_sz, scale=(0.9, 1))
     ])
     return img_mask_transforms
@@ -156,11 +156,11 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False, img_sz
 
     train_set = ImageDataset(True, train_meta, img_dir=settings.TRAIN_IMG_DIR,
                             augment_with_target=img_mask_aug_train,
-                            image_augment=transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),  #ImgAug(aug.brightness_seq),
+                            image_augment=transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),  #ImgAug(aug.brightness_seq),
                             image_transform=get_img_transforms(img_sz),
                             mask_transform=get_mask_transforms(img_sz))
 
-    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=train_shuffle, num_workers=4, collate_fn=train_set.collate_fn, drop_last=True)
+    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=train_shuffle, num_workers=16, collate_fn=train_set.collate_fn, drop_last=True)
     train_loader.num = len(train_set)
     if dev_mode:
         train_loader.y_true = read_masks(train_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
@@ -170,7 +170,7 @@ def get_train_val_loaders(batch_size=8, dev_mode=False, drop_empty=False, img_sz
                             image_augment=None, #ImgAug(aug.pad_to_fit_net(64, 'reflect')),
                             image_transform=get_img_transforms(img_sz),
                             mask_transform=get_mask_transforms(img_sz))
-    val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_set.collate_fn)
+    val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=16, collate_fn=val_set.collate_fn)
     val_loader.num = len(val_set)
     val_loader.y_true = read_masks(val_meta['ImageId'].values, settings.TRAIN_MASK_DIR)
     val_loader.meta = val_meta
